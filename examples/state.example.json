@@ -18,6 +18,9 @@
   "validation": {
     "interactive_read_access": false,
     "background_run_validated": false,
+    "scheduled_wake_validated": false,
+    "cli_same_session_resume_validated": false,
+    "desktop_ui_resume_validated": false,
     "actual_quota_resume_validated": false
   },
   "last_notification": null
