@@ -1,57 +1,52 @@
-# Codex 手動續跑提示詞範本
+# Codex resume prompt
 
-設定時讓 Codex 閱讀本檔，依實際環境代填下列值，再透過原生工具保存為同一聊天的排程提示詞。這個檔案本身不會建立或喚醒排程。
+Use this as the saved prompt for a schedule attached to the same Codex chat. During setup, replace every placeholder with the actual local value:
 
-- `[PROJECT_ROOT]`：此 repo 在使用者電腦上的絕對路徑。
-- `[STATE_PATH]`：本機狀態檔絕對路徑，通常是 `[PROJECT_ROOT]/.research/claude-monitor/state.json`。
-- `[SCHEDULE_ID]`：建立成功後由原生工具回傳的 ID；設定前先查有無可沿用的同工作排程。
+- `[PROJECT_ROOT]`: absolute path to this repo.
+- `[STATE_PATH]`: absolute path to `.research/claude-monitor/state.json`.
+- `[SCHEDULE_ID]`: the ID returned by the native scheduling tool. Reuse a matching schedule when available.
 
-以下內容需完整保存；不要保留未代填的路徑或虛構 ID。
+This file is a template, not an installed schedule.
 
 ---
 
-執行一次 Claude Code 額度續跑檢查。使用者選擇「手動回報限制、接近重設時間才喚醒」；平時維持暫停，不定期輪詢、不自動納入新工作。這不是常駐監控程式。
+Help resume an existing Claude Code task after a subscription usage limit. The user manually reports each limit. Keep the schedule paused between requests; do not poll or add unrelated sessions.
 
-專案目錄：[PROJECT_ROOT]
-本機狀態檔：[STATE_PATH]
-本聊天排程 ID：[SCHEDULE_ID]
+Project: [PROJECT_ROOT]
+State file: [STATE_PATH]
+Schedule ID: [SCHEDULE_ID]
 
-## 每次開始
+## When the user requests a booking
 
-讀取本機狀態，僅處理使用者已登記的原工作。狀態檔為空、損壞或無法讀取時，先確認排程暫停並回報，不自行重建工作或猜測 session。
+1. Read local state and identify the registered task, original session, interface, and working directory. If state is missing or unclear, pause and ask for the missing information. Do not create a replacement task.
+2. Allow only one pending booking. Preserve another session's booking unless the user explicitly requests a replacement. Store the selected session in `scheduled_session_id`.
+3. Confirm that the latest unfinished turn stopped because of a subscription limit. Old errors, generic 429 responses, login problems, permission prompts, user stops, and unanswered questions do not qualify.
+4. Confirm that the user has disabled paid extra usage. Use only the existing subscription; do not buy credits, switch accounts or providers, or weaken permissions.
+5. Read the exact reset date, time, and timezone. Store `quota_reset_at` on the session and `next_wake_at` at the top level, including the UTC offset. Target about 60 seconds after reset. Never assume that the reset is five hours from now.
+6. Use the native scheduling tool to update this schedule. Prefer a single occurrence. If a recurring rule is required, verify its next occurrence and pause it immediately on wake-up. Do not edit scheduler files directly or substitute hourly polling. Confirm tool success and the intended execution time before reporting a booking; otherwise stay paused.
 
-本版本同時只預約一個 session，以 `scheduled_session_id` 記錄。若使用者手動要求安排另一個工作，而 `next_wake_at` 已有尚未處理的預約，先保留原排程與狀態並回報衝突；除非使用者明確要求改排，不先暫停、覆寫或另建排程。其他情況（包括預定時間醒來）先透過原生工具暫停這一個排程；若無法確認已暫停，先處理排程狀態，不送 Claude 訊息。
+## When the schedule wakes
 
-只讀必要的工作狀態與最新少量事件。不要輸出憑證、完整個人設定或無關歷史，也不要呼叫 Claude 來測試額度。
+1. Pause this schedule first and confirm success. Load the selected session and due time. If early or unable to identify the task, stay paused and report the issue.
+2. Verify current allowance and that extra paid usage is still disabled. Time passing alone does not prove recovery; do not send a Claude request just to probe quota.
+3. Immediately before sending, check the latest turn and activity. Preserve drafts, unanswered questions, permission prompts, new user instructions, and manual stops. If the user is interacting with the window, leave it alone. Skip work that is running, completed, canceled, archived, or already resuming through Claude's native mechanism.
+4. Deduplicate by session, reset window, and latest event. Save `pending_dispatch` before sending. Resolve any uncertain previous dispatch from the actual conversation instead of resending blindly.
+5. Continue the original session through an available, authorized interface. Keep Desktop work in its original conversation and interactive CLI work in its original terminal. If the task already uses a runner, retain that runner and its session. Do not open a Desktop task as a separate CLI copy or bypass a denied action.
+6. Send only once:
 
-若使用者在額度重設後明確要求「現在檢查並接續，不安排排程」，先確認目標工作與授權，直接執行下方到期檢查的相同核對流程。這種人工觸發不需要虛構預約時間，也不能記為排程背景驗證成功；仍需避免改動其他工作的既有預約。
+   > Continue the unfinished, authorized work from where the usage limit interrupted it. Check existing progress and preserve completed work. Resume only unfinished subtasks. Do not expand scope or add paid usage. If the task is complete or needs my answer, stop and explain.
 
-## 使用者手動要求安排時
+7. Verify that the original conversation received the message or started work. Record the timestamp and evidence, then clear `pending_dispatch`. Sending a message does not prove task completion.
+8. Clear `next_wake_at` and `scheduled_session_id`, and remain paused. If a new quota rejection supplies a new explicit reset time, another booking is allowed, up to 12 resume attempts per task. Do not schedule routine progress checks.
 
-1. 核對最新有效回合確實因訂閱額度中斷、工作未完成且仍獲授權。歷史錯誤、一般 429、登入失效、權限要求、待答問題、已完成或手動停止都不可當作額度中斷。
-2. 核對使用者已確認付費額外用量關閉。若未確認，先確認；僅使用訂閱額度，不購買額度、換帳號、切換供應商或放寬權限。
-3. 確認原工作名稱、session ID、介面與工作目錄。桌面工作不另開 CLI 副本；若有原工作已使用的 runner，必須沿用該 runner 的原工作記錄，不能臨時發明新工作。
-4. 讀取限制提示中的完整重設日期、時間與時區。在對應 session 保存 `quota_reset_at`，在頂層保存 `scheduled_session_id` 與 `next_wake_at`，預定重設後 60 秒。沒有明確時間時保持暫停，詢問缺少資訊，不直接從現在加五小時。
-5. 用原生工具更新同一排程到目標時間，不寫原始排程設定檔。優先使用工具接受的單次規則。若工具只提供週期規則，只有核實不會提前喚醒、且本提示詞會在醒來時先暫停，才使用指定日期／時間規則。無法確認就保持暫停並說明，不以每小時喚醒代替。
-6. 必須取得工具成功結果，並核實啟用狀態與下次執行時間，才能宣告已預約。在本機記錄實際排程 ID 與結果。不要把提示詞、範例 JSON 或建議卡片當成已建立的排程。
-7. 回報原工作、台北時間或使用者指定時區的預約時間，以及仍需電腦與 App 持續可用。等待期間不再啟動模型檢查。
+## Manual checks and failures
 
-## 預定時間醒來時
+If the user explicitly requests an immediate check after reset, apply the same safeguards without inventing a booking or overwriting another pending booking.
 
-1. 先暫停排程，再依 `scheduled_session_id` 讀取 `next_wake_at` 與對應 session。無法對應原工作時回報，不猜另一個工作。若意外提前醒來，不呼叫 Claude；只在原生工具能確認正確下一次時間時重新預約，否則保持暫停並回報。
-2. 到期本身不代表額度已恢復。以最新可見用量／限制狀態核對，並確認帳務設定未被新證據推翻。無法確認時不送出探測訊息。
-3. 緊鄰送出前重新讀取最新回合與原 UI。若有新使用者指令、未送草稿、待答問題、權限提示、手動停止、原 worker 正在工作，或使用者正在操作，保留原狀。Claude 原生等待／續跑已在運作時，先讓它執行，避免雙送。
-4. 以 session、額度窗口與最後事件去重，先保存 `pending_dispatch`。若已有不明送出狀態，核對對話證據，不直接重送。
-5. 僅透過目前可用且已授權的桌面操作工具，在原桌面 Code 對話或原互動 CLI 終端送出一次：
+On an unknown error, missing access, unclear timing, or an unidentifiable session, stay paused and report the specific issue once. Never submit or modify the user's draft, answer questions for them, or increase permissions.
 
-   > 請從因額度限制中斷的位置，繼續原本已授權且尚未完成的工作。先核對現有進度，保留已完成成果與研究筆記；子工作只接續未完成部分。不擴大範圍、不新增付費使用；若已完成或仍需要我回答問題，請停止並說明。
+Record schedule registration, background access, same-session continuation, and real quota recovery separately. Mark only observed results as verified. Do not infer real quota recovery from a controlled test.
 
-6. 不覆蓋、刪除或送出使用者的草稿，不代答、不提升權限。無法可靠定位原 session 或缺少操作能力時保持暫停，回報需要處理的項目，不改走另一入口。
-7. 送出後核對訊息出現在原對話或工作開始，保存時間、事件 ID／簡短證據，清除待送狀態並記錄嘗試次數。只有看到恢復證據，才標記 `actual_quota_resume_validated`。訊息送達不等於任務完成。
-8. 完成本次檢查後清除 `next_wake_at` 與 `scheduled_session_id`，保持排程暫停，不安排固定進度追蹤。若真正再次收到額度限制，且有新的明確重設時間，可沿用同一排程安排下一次；每工作最多 12 次續作嘗試。其他已登記工作由使用者另行手動安排，不覆寫待處理預約。
+Keep records local and read only the necessary recent events. Avoid full-history scans, credential output, and repetitive status reports. Report bookings, confirmed resumes, and issues requiring user action.
 
-## 紀錄與回報
-
-登入、權限、未知錯誤、找不到原對話或無法確定重設時間時，保持暫停並回報一次。無變化、未到期或非可處理狀態不產生例行報告；只回報預約結果、成功續作或需要使用者處理的問題。
-
-區分「排程已註冊」「背景存取已驗證」「真正額度恢復已驗證」，不能從其中一項推論另外兩項。沒有實際觀察過就保留驗證旗標為 false。使用者要求暫停／取消時，用原生工具暫停並清除本次待喚醒時間與 `scheduled_session_id`；不因此停止已在執行的 Claude 工作。
+When the user cancels, pause the schedule and clear its pending session and wake time. Canceling this schedule does not stop a Claude task that is already running.

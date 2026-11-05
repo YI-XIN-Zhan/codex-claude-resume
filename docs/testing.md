@@ -1,97 +1,47 @@
-# 2026-11-05 受控 CLI 端到端實測
+# Test report
 
-## 結果
+**Passed: manual start, scheduled Codex wake-up, and continuation of the same Claude CLI session.**
 
-**手動啟動 → 原生定時喚醒 Codex → 同一 Claude Code CLI session 接續第二階段：通過。**
+This controlled test ran on November 5, 2026, using macOS, Claude Code CLI `2.1.316`, and Haiku through an existing subscription. Extra paid usage was disabled. The task required only text output; model tools and extra MCP connections were disabled.
 
-本次使用獨立的兩階段小任務、測試用排程提示詞與本機檢查程式。這些測試紀錄沒有包含在公開 repo；本 repo 仍提供文件與範本，沒有安裝即用的 runner。
+## Timeline
 
-| 檢查項目 | 結果 |
+All times use `Asia/Taipei` (UTC+08:00).
+
+| Event | Time |
 | --- | --- |
-| 手動啟動第一階段，保留未完成階段 | 通過 |
-| 指定時間由原生排程自行喚醒 | 通過；晚於預定時間約 6.66 秒 |
-| 背景環境能使用既有訂閱登入執行 CLI | 通過 |
-| 兩階段的 CLI `session_id` 一致 | 通過 |
-| 第二階段沿用先前內容，沒有重傳輸入或答案 | 通過 |
-| 實際 transcript 只有兩則指定 user 訊息 | 通過 |
-| 原排程設定恢復，執行後保持暫停 | 通過 |
-| 真正達到用量上限、等重設後恢復 | 未測；測試開始約使用 31% 額度 |
-| 桌面 Code UI 的無人值守續作 | 未通過驗證；本次桌面操作未生效 |
-| 既有互動終端的自動輸入 | 未測；本次使用 CLI 非互動模式 |
+| First-stage message recorded | 16:11:18.082 |
+| Scheduled wake-up | 16:15:00 |
+| Actual native heartbeat | 16:15:06.660 |
+| Second-stage message recorded | 16:16:25.441 |
+| Second stage completed | 16:16:27.823 |
 
-## 環境與時間
+The observed wake-up delay was 6.66 seconds. This is a measurement, not a timing guarantee. Codex still needed time to check state and start Claude after waking.
 
-- 本機 macOS；Claude Code CLI 版本 `2.1.316`。
-- CLI 使用既有 `claude.ai` 訂閱登入，沒有 API key 或其他供應商覆寫。
-- 使用者已確認額外付費用量關閉；測試不購買額度、不更改權限。
-- Claude 測試使用 Haiku，停用模型可用工具與額外 MCP 連線，只需輸出文字。
-- 原生排程沿用既有的 Codex 聊天；喚醒後第一步恢復原設定並暫停排程。
-- 全部時間為 2026-11-05、`Asia/Taipei`（UTC+08:00）。
+## What was verified
 
-| 事件 | 實際時間 |
-| --- | --- |
-| 第一階段的原始 user 訊息寫入 transcript | 16:11:18.082 |
-| 預定喚醒 | 16:15:00 |
-| 原生 heartbeat 回合記錄的喚醒時間 | 16:15:06.660 |
-| 第二階段 user 訊息寫入同一 transcript | 16:16:25.441 |
-| CLI 第二階段完成 | 16:16:27.823 |
+The first stage calculated `37 × 41 = 1517` and stopped. Its instructions also supplied a random verification token and left a second stage unfinished: add `23` and return the token.
 
-喚醒時間與 Claude 開始執行時間不同；背景回合仍需核對狀態、恢復暫停與啟動 CLI。上述延遲是本次觀測值，不是準時執行保證。
+The native scheduler woke an existing Codex chat. Codex used `--resume` with the original Claude session and requested the unfinished second stage. It did not repeat the token, calculation inputs, or expected answer.
 
-## 任務與成功判準
+Checks confirmed:
 
-第一階段只向 Claude 提供一次隨機校驗詞，要求計算 `37 × 41`，回覆：
+- Both CLI results used the same `session_id`.
+- The second stage returned `1540` and the correct original token.
+- The transcript contained exactly the two intended user messages.
+- The CLI exited successfully without an error result.
+- The original schedule settings were restored and left paused.
 
-```json
-{"stage":1,"product":1517,"status":"waiting_for_resume"}
-```
+## Input fix
 
-同一則原始任務另外交代：第二階段收到續作指令後，將第一階段的乘積加 `23`，並回傳原校驗詞。第一階段必須先停止，不能自行做完兩個階段。
+An earlier run accidentally passed its Python launch script through inherited standard input. It was excluded from the clean-input result.
 
-到時由原生排程喚醒 Codex；背景回合用原 session 的 `--resume`，只送出以下指令：
+Both stages were repeated with `stdin=subprocess.DEVNULL`. The transcript then matched the intended prompts exactly.
 
-```text
-請接續此session原本未完成的第二階段，遵循上一階段已記錄的任務與JSON格式，只輸出第二階段結果。不重做第一階段，不使用任何工具。
-```
+## Limits
 
-沒有重新提供校驗詞、`37`、`41`、`23`、`1517` 或 `1540`。第二階段的輸出包含：
+This was a separate, non-interactive CLI test using test-specific instructions. Usage was about 31%; **recovery after a real quota limit was not tested**.
 
-- `stage` 為 `2`。
-- `memory_token` 精確吻合第一階段的隨機校驗詞。
-- `total` 為 `1540`，`status` 為 `completed`。
-- CLI 結束碼為 `0`，結果沒有 `is_error`，`session_id` 與第一階段一致。
+Desktop Code automation and input into an existing interactive terminal remain unverified. The original research conversation and its unsent draft were untouched.
 
-測試另外直接讀取該 session 的 transcript，確認 user 訊息恰為兩則，內容精確等於兩個原始提示詞。此檢查可以排除第二階段從額外輸入取得答案，以及不慎重送提示詞的情況。
-
-原生喚醒的證據是該聊天出現帶有本次測試標記與時間的 heartbeat 回合，並執行了暫停及 CLI 續作；不是以人工傳訊息到另一聊天模擬計時器。
-
-## 發現並修正的標準輸入問題
-
-第一輪雖然成功觸發排程並接續 CLI，但最後核對實際 transcript 時發現：用 Python here-document 啟動子程序，若未指定 stdin，CLI 可能把啟動腳本的標準輸入也附到 prompt 後面。那一輪沒有作為乾淨輸入的成功依據。
-
-第二輪在兩階段都明確隔離標準輸入：
-
-```python
-subprocess.run(
-    command,
-    cwd=work_directory,
-    stdin=subprocess.DEVNULL,
-    capture_output=True,
-    text=True,
-    timeout=120,
-)
-```
-
-重新建立受控小任務、再次由原生計時器觸發後，驗證兩則實際 user 訊息都沒有夾帶腳本，第二階段也完成原本未執行的內容。上面時間表與通過結果均指修正後這一輪。
-
-若日後使用既有 runner 或程式呼叫 CLI，應確認 stdin 的來源；純 prompt 測試可明確設為空，不能只檢查參數字串而忽略 CLI 實際收到的輸入。
-
-## 可以與不能從本次測試推論的事
-
-本次證明這台電腦能透過原生排程，在指定時間喚醒 Codex，並在背景用同一個 CLI session 完成未執行的下一階段。
-
-它沒有證明真正碰到五小時額度限制後一定能恢復，也沒有接續原研究工作。當時的研究對話有未送出草稿，測試保留了該對話。桌面 UI、互動終端、其他機器／版本、電腦睡眠及網路異常的處理均需要另外驗證。
-
-測試用提示詞允許處理這個明確授權的受控小任務；一般續跑提示詞仍應拒絕把未達限、已完成或等待人員回答的研究工作當成額度中斷。不要為了重現測試而取消這些判定。
-
-原始 transcript、session ID、帳號資訊、實際排程及個人路徑只保存在本機，未提交到本 repo。其他使用者的狀態範例仍以未驗證的 `false` 值開始。
+Private transcripts, account details, session IDs, and local paths remain outside this repository.
