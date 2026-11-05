@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "monitor_status": "paused_manual",
+  "wake_mode": "user_reports_limit_then_one_wake_after_reset",
+  "scope": "selected_existing_sessions_only",
+  "schedule_id": null,
+  "scheduled_session_id": null,
+  "timezone": "Asia/Taipei",
+  "cadence_minutes": null,
+  "next_wake_at": null,
+  "automatic_limit_detection": false,
+  "max_resume_attempts_per_session": 12,
+  "billing": {
+    "user_confirmed_extra_usage_disabled": false,
+    "only_subscription_quota": true
+  },
+  "sessions": [],
+  "validation": {
+    "interactive_read_access": false,
+    "background_run_validated": false,
+    "actual_quota_resume_validated": false
+  },
+  "last_notification": null
+}
